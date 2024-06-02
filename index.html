@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<title>fn2gcode</title>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+	<link type="text/css" rel="stylesheet" href="main.css">
+	<style>
+		body {
+			background-color: #f0f0f0;
+			color: #444;
+		}
+
+		a {
+			color: #08f;
+		}
+	</style>
+</head>
+
+<body>
+
+	<div id="container"></div>
+	<div id="info">
+		<a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> - function to g-code
+	</div>
+
+	<script type="importmap">
+			{
+				"imports": {
+					"three": "../build/three.module.js",
+					"three/addons/": "./jsm/"
+				}
+			}
+		</script>
+
+	<script type="module">
+
+		import * as THREE from 'three';
+
+		import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
+
+		import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+		import { TransformControls } from 'three/addons/controls/TransformControls.js';
+
+		let container;
+		let camera, scene, renderer;
+		const splineHelperObjects = [];
+		let splinePointsLength = 4;
+		const positions = [];
+		const point = new THREE.Vector3();
+		let points = []
+		let line
+		const raycaster = new THREE.Raycaster();
+		const pointer = new THREE.Vector2();
+		const onUpPosition = new THREE.Vector2();
+		const onDownPosition = new THREE.Vector2();
+
+		const geometry = new THREE.BoxGeometry(20, 20, 20);
+		let transformControl;
+
+		const ARC_SEGMENTS = 200;
+
+		const splines = {};
+
+		const params = {
+			mag1: 50,
+			freq1: 552.7,
+			phase1: 0,
+			mag2: 80,
+			freq2: 107,
+			phase2: 0,
+			mag3: 40,
+			freq3: 132,
+			phase3: 0,
+		};
+
+		init();
+
+		function init() {
+
+			container = document.getElementById('container');
+
+			scene = new THREE.Scene();
+			scene.background = new THREE.Color(0xf0f0f0);
+			const width = 1000;
+			const height = 1000;
+			//camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 10000 );
+			camera = new THREE.OrthographicCamera(width / - 2, width / 2, height / 2, height / - 2, -10000, 10000);
+			camera.position.set(0, 0, 1000);
+			scene.add(camera);
+
+			scene.add(new THREE.AmbientLight(0xf0f0f0, 3));
+			const light = new THREE.SpotLight(0xffffff, 4.5);
+			light.position.set(0, 15000, 0);
+			light.angle = Math.PI * 0.2;
+			light.decay = 0;
+			light.castShadow = true;
+			light.shadow.camera.near = 1000;
+			light.shadow.camera.far = 20000;
+			light.shadow.bias = - 0.000222;
+			light.shadow.mapSize.width = 1024;
+			light.shadow.mapSize.height = 1024;
+			scene.add(light);
+
+			const planeGeometry = new THREE.PlaneGeometry(2000, 2000);
+			planeGeometry.rotateX(- Math.PI / 2);
+			const planeMaterial = new THREE.ShadowMaterial({ color: 0x000000, opacity: 0.2 });
+
+			const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+			plane.position.y = - 200;
+			plane.receiveShadow = true;
+			scene.add(plane);
+
+			const helper = new THREE.GridHelper(2000, 20);
+			helper.position.y = - 199;
+			helper.material.opacity = 0.25;
+			helper.material.transparent = true;
+			scene.add(helper);
+
+			renderer = new THREE.WebGLRenderer({ antialias: true });
+			renderer.setPixelRatio(window.devicePixelRatio);
+			renderer.setSize(window.innerWidth, window.innerHeight);
+			renderer.shadowMap.enabled = true;
+			container.appendChild(renderer.domElement);
+
+			const gui = new GUI();
+
+			gui.add(params, 'mag1', 0, 200).step(0.1).onChange(function (value) {
+				params.mag1 = value;
+				line.geometry.attributes.position.needsUpdate = true; // required after the first render
+				updateFnOutline();
+				render();
+			});
+			gui.add(params, 'freq1', 1, 600).step(0.1).onChange(function (value) {
+				params.freq1 = value;
+				line.geometry.attributes.position.needsUpdate = true; // required after the first render
+				updateFnOutline();
+				render();
+			});
+			gui.add(params, 'phase1', 0, Math.PI*2).step(0.2).onChange(function (value) {
+				params.phase1 = value;
+				line.geometry.attributes.position.needsUpdate = true; // required after the first render
+				updateFnOutline();
+				render();
+			});
+
+			gui.add(params, 'mag2', 0, 200).step(0.1).onChange(function (value) {
+				params.mag2 = value;
+				line.geometry.attributes.position.needsUpdate = true; // required after the first render
+				updateFnOutline();
+				render();
+			});
+			gui.add(params, 'freq2', 1, 600).step(1).onChange(function (value) {
+				params.freq2 = value;
+				line.geometry.attributes.position.needsUpdate = true; // required after the first render
+				updateFnOutline();
+				render();
+			});
+			gui.add(params, 'phase2', 0, Math.PI).step(0.1).onChange(function (value) {
+				params.phase2 = value;
+				line.geometry.attributes.position.needsUpdate = true; // required after the first render
+				updateFnOutline();
+				render();
+			});
+
+			gui.add(params, 'mag3', 0, 200).step(0.1).onChange(function (value) {
+				params.mag3 = value;
+				line.geometry.attributes.position.needsUpdate = true; // required after the first render
+				updateFnOutline();
+				render();
+			});
+			gui.add(params, 'freq3', 1, 600).step(1).onChange(function (value) {
+				params.freq3 = value;
+				line.geometry.attributes.position.needsUpdate = true; // required after the first render
+				updateFnOutline();
+				render();
+			});
+			gui.add(params, 'phase3', 0, Math.PI).step(0.1).onChange(function (value) {
+				params.phase3 = value;
+				line.geometry.attributes.position.needsUpdate = true; // required after the first render
+				updateFnOutline();
+				render();
+			});
+			gui.open();
+
+			// Controls
+			const controls = new OrbitControls(camera, renderer.domElement);
+			controls.damping = 0.2;
+			controls.addEventListener('change', render);
+
+			transformControl = new TransformControls(camera, renderer.domElement);
+			transformControl.addEventListener('change', render);
+			transformControl.addEventListener('dragging-changed', function (event) {
+
+				controls.enabled = !event.value;
+
+			});
+			scene.add(transformControl);
+
+			transformControl.addEventListener('objectChange', function () {
+
+				updateFnOutline();
+
+			});
+
+			document.addEventListener('pointerdown', onPointerDown);
+			document.addEventListener('pointerup', onPointerUp);
+			document.addEventListener('pointermove', onPointerMove);
+			window.addEventListener('resize', onWindowResize);
+
+			// const material = new THREE.LineBasicMaterial({ color: 0x0000ff });
+			// const geometry = new THREE.BufferGeometry().setFromPoints(points);
+			// line = new THREE.Line( geometry, material );
+			// scene.add( line );
+
+			// geometry
+			const geometry = new THREE.BufferGeometry();
+			// attributes
+			let positions = new Float32Array(ARC_SEGMENTS * 3); // 3 vertices per point
+			geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+			geometry.setDrawRange(0, ARC_SEGMENTS);
+			// material
+			const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
+			// line
+			line = new THREE.Line(geometry, material);
+			scene.add(line);
+			// update positions
+			updateFnOutline()
+			render();
+			line.geometry.attributes.position.needsUpdate = true; // required after the first render
+		}
+
+		function fn(t) {
+			const point = {}
+			point.x = Math.cos(t * params.freq1 + params.phase1) * params.mag1 
+				+ Math.cos(t * params.freq2 + params.phase2) * params.mag2
+				+ Math.cos(t * params.freq3 + params.phase3) * params.mag3
+			point.z = t * 10 - 1000
+			point.y = Math.sin(t * params.freq1 + params.phase1) * params.mag1
+				+ Math.sin(t * params.freq2 + params.phase2) * params.mag2
+				+ Math.sin(t * params.freq3 + params.phase3) * params.mag3
+			return point
+		}
+
+		function updateFnOutline() {
+			var positions = line.geometry.attributes.position.array;
+			let index = 0
+			for (let i = 0; i < positions.length / 3; i++) {
+				const t = i; // / ARC_SEGMENTS;
+				const pt = fn(t);
+				positions[index++] = pt.x;
+				positions[index++] = pt.y;
+				positions[index++] = pt.z;
+			}
+		}
+
+		function inMachineCoords(p) {
+			const x = Math.max(50, Math.min(150, (p.x + 1000.0) / 20.0 + 50.0));
+			const y = Math.max(0, Math.min(100, (p.z + 1000.0) / 20.0));
+			const z = Math.max(0, Math.min(5, (p.y + 1000.0) / -160 + 10.0));
+			return [x, y, z];
+		}
+
+		function exportGcode() {
+
+
+			const gCodeLines = [
+				'G21', 'G90', // millimeter and absolute coords
+				'; Begin dip-tap',
+				'G0 Z0 F100 ; Move up',
+				'G0 X10 Y10 F200 ; Move to X10 Y10',
+				'G01 Z4 F400 ; dip',
+				'G01 Z2',
+				'G01 Z4',
+				'G01 Z2',
+				'G01 X15',
+				'G01 X10',
+				'G01 X15',
+				'G0 Z0',
+				'; End dip-tap ',
+				'; Begin stroke',
+			];
+
+
+
+			// const spline = splines['chordal'];
+
+			// const splineMesh = spline.mesh;
+			// const prev = new THREE.Vector3();
+			// spline.getPoint(0.0, prev);
+			// const [x0, y0, z0] = inMachineCoords(prev);
+			// gCodeLines.push(`G0 X${x0.toFixed(4)} Y${y0.toFixed(4)} Z${z0.toFixed(4)}`);
+			// for (let i = 1; i < ARC_SEGMENTS; i++) {
+			// 	const t = i / ARC_SEGMENTS;
+			// 	spline.getPoint(t, point);
+			// 	const [x, y, z] = inMachineCoords(point);
+			// 	// TODO wouldn't be better to do this rate calc in MachineCoords
+			// 	const feedRateMmPerMinute = Math.max(prev.distanceTo(point) / 1.5, 100);
+
+			// 	gCodeLines.push(`G1 X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)} F${feedRateMmPerMinute.toFixed(0)}`);
+			// }
+			gCodeLines.push('G0 Z0')
+			gCodeLines.push('G0 X0 Y0', '; End stroke ')
+
+			// 1. Create the data
+			const data = gCodeLines.join('\n');
+
+			// 2. Create a Blob
+			const blob = new Blob([data], { type: 'text/plain' });
+
+			// 3. Create a URL
+			const url = URL.createObjectURL(blob);
+
+			// 4. Create a Download Link
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = 'spline3d.gcode'; // Specify the name of the file
+
+			// 5. Trigger the Download
+			document.body.appendChild(a);
+			a.click();
+
+			// Cleanup
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url); // Free up memory
+		}
+
+
+		function render() {
+			// points = [];
+			// updateFnOutline()
+			renderer.render(scene, camera);
+
+		}
+
+		function onPointerDown(event) {
+
+			onDownPosition.x = event.clientX;
+			onDownPosition.y = event.clientY;
+
+		}
+
+		function onPointerUp(event) {
+
+			onUpPosition.x = event.clientX;
+			onUpPosition.y = event.clientY;
+
+			if (onDownPosition.distanceTo(onUpPosition) === 0) {
+
+				transformControl.detach();
+				render();
+
+			}
+
+		}
+
+		function onPointerMove(event) {
+
+			pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+			pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+			raycaster.setFromCamera(pointer, camera);
+
+			const intersects = raycaster.intersectObjects(splineHelperObjects, false);
+
+			if (intersects.length > 0) {
+
+				const object = intersects[0].object;
+
+				if (object !== transformControl.object) {
+
+					transformControl.attach(object);
+
+				}
+
+			}
+
+		}
+
+		function onWindowResize() {
+
+			camera.aspect = window.innerWidth / window.innerHeight;
+			camera.updateProjectionMatrix();
+
+			renderer.setSize(window.innerWidth, window.innerHeight);
+
+			render();
+
+		}
+
+	</script>
+
+</body>
+
+</html>
