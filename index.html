@@ -47,7 +47,7 @@
 		let camera, scene, renderer;
 		const splineHelperObjects = [];
 		let splinePointsLength = 4;
-		const positions = [];
+		let positions = [];
 		const point = new THREE.Vector3();
 		let points = []
 		let line
@@ -73,6 +73,7 @@
 			mag3: 40,
 			freq3: 132,
 			phase3: 0,
+			exportGcode: exportGcode,
 		};
 
 		init();
@@ -157,7 +158,7 @@
 				updateFnOutline();
 				render();
 			});
-			gui.add(params, 'phase2', 0, Math.PI).step(0.1).onChange(function (value) {
+			gui.add(params, 'phase2', 0, Math.PI*2).step(0.1).onChange(function (value) {
 				params.phase2 = value;
 				line.geometry.attributes.position.needsUpdate = true; // required after the first render
 				updateFnOutline();
@@ -176,12 +177,13 @@
 				updateFnOutline();
 				render();
 			});
-			gui.add(params, 'phase3', 0, Math.PI).step(0.1).onChange(function (value) {
+			gui.add(params, 'phase3', 0, Math.PI*2).step(0.1).onChange(function (value) {
 				params.phase3 = value;
 				line.geometry.attributes.position.needsUpdate = true; // required after the first render
 				updateFnOutline();
 				render();
 			});
+			gui.add(params, 'exportGcode');
 			gui.open();
 
 			// Controls
@@ -217,9 +219,9 @@
 			// geometry
 			const geometry = new THREE.BufferGeometry();
 			// attributes
-			let positions = new Float32Array(ARC_SEGMENTS * 3); // 3 vertices per point
+			let positions = new Float32Array(ARC_SEGMENTS * 5 * 3); // 5 rows of 3 vertices per point
 			geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-			geometry.setDrawRange(0, ARC_SEGMENTS);
+			geometry.setDrawRange(0, ARC_SEGMENTS * 5);
 			// material
 			const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
 			// line
@@ -231,27 +233,35 @@
 			line.geometry.attributes.position.needsUpdate = true; // required after the first render
 		}
 
-		function fn(t) {
+		function fn(i, t) {
+			const t2 = t + (i * ARC_SEGMENTS)
 			const point = {}
-			point.x = Math.cos(t * params.freq1 + params.phase1) * params.mag1 
-				+ Math.cos(t * params.freq2 + params.phase2) * params.mag2
-				+ Math.cos(t * params.freq3 + params.phase3) * params.mag3
-			point.z = t * 10 - 1000
-			point.y = Math.sin(t * params.freq1 + params.phase1) * params.mag1
-				+ Math.sin(t * params.freq2 + params.phase2) * params.mag2
-				+ Math.sin(t * params.freq3 + params.phase3) * params.mag3
+			if (i === 2 && t === 0) {
+				console.log(i)
+			}
+			point.z = Math.cos(t2 * params.freq1 + params.phase1) * params.mag1 
+				+ Math.cos(t2 * params.freq2 + params.phase2) * params.mag2
+				+ Math.cos(t2 * params.freq3 + params.phase3) * params.mag3
+				+ (i-2) * 400
+			point.x = t * 10 - 1000
+			point.y = Math.sin(t2 * params.freq1 + params.phase1) * params.mag1
+				+ Math.sin(t2 * params.freq2 + params.phase2) * params.mag2
+				+ Math.sin(t2 * params.freq3 + params.phase3) * params.mag3
 			return point
 		}
 
 		function updateFnOutline() {
-			var positions = line.geometry.attributes.position.array;
+			positions = line.geometry.attributes.position.array;
 			let index = 0
-			for (let i = 0; i < positions.length / 3; i++) {
-				const t = i; // / ARC_SEGMENTS;
-				const pt = fn(t);
-				positions[index++] = pt.x;
-				positions[index++] = pt.y;
-				positions[index++] = pt.z;
+			for (let i = 0; i < 5; i++) {
+				console.log(i)
+				// const seg = i * positions.length / 3 / 5
+				for (let j = 0; j < positions.length / 3 / 5; j++) {
+					const pt = fn(i, j);
+					positions[index++] = pt.x;
+					positions[index++] = pt.y;
+					positions[index++] = pt.z;
+				}
 			}
 		}
 
@@ -282,26 +292,22 @@
 				'; Begin stroke',
 			];
 
-
-
-			// const spline = splines['chordal'];
-
-			// const splineMesh = spline.mesh;
-			// const prev = new THREE.Vector3();
-			// spline.getPoint(0.0, prev);
-			// const [x0, y0, z0] = inMachineCoords(prev);
-			// gCodeLines.push(`G0 X${x0.toFixed(4)} Y${y0.toFixed(4)} Z${z0.toFixed(4)}`);
-			// for (let i = 1; i < ARC_SEGMENTS; i++) {
-			// 	const t = i / ARC_SEGMENTS;
-			// 	spline.getPoint(t, point);
-			// 	const [x, y, z] = inMachineCoords(point);
-			// 	// TODO wouldn't be better to do this rate calc in MachineCoords
-			// 	const feedRateMmPerMinute = Math.max(prev.distanceTo(point) / 1.5, 100);
-
-			// 	gCodeLines.push(`G1 X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)} F${feedRateMmPerMinute.toFixed(0)}`);
-			// }
+			let i = 0
+			let prev = new THREE.Vector3( positions[i], positions[i+1], positions[i+2])
+			const [x0, y0, z0] = inMachineCoords(prev);
+			gCodeLines.push(`G0 X${x0.toFixed(4)} Y${y0.toFixed(4)} Z${z0.toFixed(4)}`);
+			for (i = 1; i < ARC_SEGMENTS * 5; i++) {
+				const t = i * 3;
+				const pt = new THREE.Vector3( positions[t], positions[t+1], positions[t+2])
+				const [x, y, z] = inMachineCoords(pt);
+				// TODO wouldn't be better to do this rate calc in MachineCoords
+				const feedRateMmPerMinute = Math.max(prev.distanceTo(pt) / 0.05, 100);
+				prev = pt
+				gCodeLines.push(`G1 X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)} F${feedRateMmPerMinute.toFixed(0)}`);
+			}
 			gCodeLines.push('G0 Z0')
 			gCodeLines.push('G0 X0 Y0', '; End stroke ')
+			gCodeLines.push('; ' + JSON.stringify(params))
 
 			// 1. Create the data
 			const data = gCodeLines.join('\n');
@@ -315,7 +321,7 @@
 			// 4. Create a Download Link
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = 'spline3d.gcode'; // Specify the name of the file
+			a.download = 'fn2gcode.gcode'; // Specify the name of the file
 
 			// 5. Trigger the Download
 			document.body.appendChild(a);
