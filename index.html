@@ -41,7 +41,7 @@
 		let camera, scene, renderer;
 		const splineHelperObjects = [];
 		let splinePointsLength = 4;
-		let positions = [];
+		let positions = null;
 		const point = new THREE.Vector3();
 		let points = []
 		let line
@@ -58,9 +58,9 @@
 		const splines = {};
 
 		const params = {
-			rows: 5,
-			mag1: 50,
-			freq1: 1,
+			rows: 76,
+			mag1: 150,
+			freq1: 2,
 			phase1: 0,
 			mag2: 0,
 			freq2: 1,
@@ -124,6 +124,7 @@
 
 			gui.add(params, 'rows', 1, 80).step(1).onChange(function (value) {
 				params.rows = value;
+				geometry.setDrawRange(0, ARC_SEGMENTS * params.rows);
 				line.geometry.attributes.position.needsUpdate = true; // required after the first render
 				updateFnOutline();
 				render();
@@ -221,7 +222,8 @@
 			// geometry
 			const geometry = new THREE.BufferGeometry();
 			// attributes
-			let positions = new Float32Array(ARC_SEGMENTS * params.rows * 3); // params.rows of 3 vertices per point
+			positions = new Float32Array(ARC_SEGMENTS * 80 * 3); // params.rows of 3 vertices per point
+			
 			geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 			geometry.setDrawRange(0, ARC_SEGMENTS * params.rows);
 			// material
@@ -234,18 +236,22 @@
 			render();
 			line.geometry.attributes.position.needsUpdate = true; // required after the first render
 		}
+		
 
 		function fn(i, t) {
-			const t2 = i + (t / ARC_SEGMENTS * params.rows)
+			const rowPoints = ARC_SEGMENTS
+			const rowDelta = 2000 / params.rows
+			const t2 = (i + 1) * (t / rowPoints)
+			const pt_i = (i * params.rows) + t*3
 			const point = {}
 			if (i === 2 && t === 0) {
-				console.log(i)
+				console.log(i, pt_i, t2)
 			}
 			point.z = Math.cos(t2 * params.freq1 + params.phase1) * params.mag1 
 				+ Math.cos(t2 * params.freq2 + params.phase2) * params.mag2
 				+ Math.cos(t2 * params.freq3 + params.phase3) * params.mag3
-				+ (i - params.rows/2 + 0.5) * 400
-			point.x = t * 50 /params.rows  - 1000
+				+ (i - params.rows/2 + 0.5) * rowDelta
+			point.x = (t * 10) - 1000
 			point.y = Math.sin(t2 * params.freq1 + params.phase1) * params.mag1
 				+ Math.sin(t2 * params.freq2 + params.phase2) * params.mag2
 				+ Math.sin(t2 * params.freq3 + params.phase3) * params.mag3
@@ -253,12 +259,11 @@
 		}
 
 		function updateFnOutline() {
+			const rowPoints = ARC_SEGMENTS
 			positions = line.geometry.attributes.position.array;
 			let index = 0
 			for (let i = 0; i < params.rows; i++) {
-				console.log(i)
-				// const seg = i * positions.length / 3 / params.rows
-				for (let j = 0; j < positions.length / 3 / params.rows; j++) {
+				for (let j = 0; j < rowPoints; j++) {
 					const pt = fn(i, j);
 					positions[index++] = pt.x;
 					positions[index++] = pt.y;
@@ -294,16 +299,27 @@
 
 			let i = 0
 			let prev = new THREE.Vector3( positions[i], positions[i+1], positions[i+2])
-			const [x0, y0, z0] = inMachineCoords(prev);
-			gCodeLines.push(`G0 X${x0.toFixed(4)} Y${y0.toFixed(4)} Z${z0.toFixed(4)}`);
-			for (i = 1; i < ARC_SEGMENTS * params.rows; i++) {
-				const t = i * 3;
-				const pt = new THREE.Vector3( positions[t], positions[t+1], positions[t+2])
-				const [x, y, z] = inMachineCoords(pt);
-				// TODO wouldn't be better to do this rate calc in MachineCoords
-				const feedRateMmPerMinute = Math.max(prev.distanceTo(pt) / 0.05, 100);
-				prev = pt
-				gCodeLines.push(`G1 X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)} F${feedRateMmPerMinute.toFixed(0)}`);
+			// const [x0, y0, z0] = inMachineCoords(prev);
+			// gCodeLines.push(`G0 X${x0.toFixed(3)} Y${y0.toFixed(3)} Z${z0.toFixed(3)}`);
+			const rowPoints = ARC_SEGMENTS
+			positions = line.geometry.attributes.position.array;
+			for (let i = 0; i < params.rows; i++) {
+				for (let j = 0; j < rowPoints; j++) {
+					const t = (i * rowPoints * 3) + (j * 3);
+					const pt = new THREE.Vector3( positions[t], positions[t+1], positions[t+2])
+					const [x, y, z] = inMachineCoords(pt);
+					// TODO wouldn't be better to do this rate calc in MachineCoords
+					const feedRateMmPerMinute = Math.max(prev.distanceTo(pt) / 0.05, 100);
+					prev = pt
+					if (j === 0) {
+						gCodeLines.push(`G0 Z0`);
+						gCodeLines.push(`G0 X${x.toFixed(3)} Y${y.toFixed(3)} Z0`);
+						gCodeLines.push(`G0 Z${z.toFixed(3)}`);
+					}
+					else {
+						gCodeLines.push(`G1 X${x.toFixed(3)} Y${y.toFixed(3)} Z${z.toFixed(3)} F${feedRateMmPerMinute.toFixed(0)}`);
+					}
+				}
 			}
 			gCodeLines.push('G0 Z0')
 			gCodeLines.push('G0 X0 Y0', '; End stroke ')
