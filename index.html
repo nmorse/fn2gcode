@@ -58,16 +58,9 @@
 		const splines = {};
 
 		const params = {
-			rows: 76,
-			mag1: 150,
-			freq1: 2,
-			phase1: 0,
-			mag2: 0,
-			freq2: 1,
-			phase2: 0,
-			mag3: 0,
-			freq3: 1,
-			phase3: 0,
+			xfn: "s(t/2)*1000",
+			yfn: "t/10",
+			zfn: "c(t)*120",
 			exportGcode: exportGcode,
 		};
 
@@ -122,66 +115,22 @@
 
 			const gui = new GUI();
 
-			gui.add(params, 'rows', 1, 80).step(1).onChange(function (value) {
-				params.rows = value;
-				geometry.setDrawRange(0, ARC_SEGMENTS * params.rows);
+			gui.add(params, 'xfn').onChange(function (value) {
+				params.xfn = value;
+				geometry.setDrawRange(0, ARC_SEGMENTS * 78);
 				line.geometry.attributes.position.needsUpdate = true; // required after the first render
 				updateFnOutline();
 				render();
 			});
 
-			gui.add(params, 'mag1', 0, 200).step(1).onChange(function (value) {
-				params.mag1 = value;
+			gui.add(params, 'yfn').onChange(function (value) {
+				params.yfn = value;
 				line.geometry.attributes.position.needsUpdate = true; // required after the first render
 				updateFnOutline();
 				render();
 			});
-			gui.add(params, 'freq1', -600, 600).step(1).onChange(function (value) {
-				params.freq1 = value;
-				line.geometry.attributes.position.needsUpdate = true; // required after the first render
-				updateFnOutline();
-				render();
-			});
-			gui.add(params, 'phase1', 0, Math.PI*2).step(0.2).onChange(function (value) {
-				params.phase1 = value;
-				line.geometry.attributes.position.needsUpdate = true; // required after the first render
-				updateFnOutline();
-				render();
-			});
-
-			gui.add(params, 'mag2', 0, 200).step(1).onChange(function (value) {
-				params.mag2 = value;
-				line.geometry.attributes.position.needsUpdate = true; // required after the first render
-				updateFnOutline();
-				render();
-			});
-			gui.add(params, 'freq2', -600, 600).step(1).onChange(function (value) {
-				params.freq2 = value;
-				line.geometry.attributes.position.needsUpdate = true; // required after the first render
-				updateFnOutline();
-				render();
-			});
-			gui.add(params, 'phase2', 0, Math.PI*2).step(0.2).onChange(function (value) {
-				params.phase2 = value;
-				line.geometry.attributes.position.needsUpdate = true; // required after the first render
-				updateFnOutline();
-				render();
-			});
-
-			gui.add(params, 'mag3', 0, 200).step(1).onChange(function (value) {
-				params.mag3 = value;
-				line.geometry.attributes.position.needsUpdate = true; // required after the first render
-				updateFnOutline();
-				render();
-			});
-			gui.add(params, 'freq3', -600, 600).step(1).onChange(function (value) {
-				params.freq3 = value;
-				line.geometry.attributes.position.needsUpdate = true; // required after the first render
-				updateFnOutline();
-				render();
-			});
-			gui.add(params, 'phase3', 0, Math.PI*2).step(0.2).onChange(function (value) {
-				params.phase3 = value;
+			gui.add(params, 'zfn').onChange(function (value) {
+				params.zfn = value;
 				line.geometry.attributes.position.needsUpdate = true; // required after the first render
 				updateFnOutline();
 				render();
@@ -222,10 +171,10 @@
 			// geometry
 			const geometry = new THREE.BufferGeometry();
 			// attributes
-			positions = new Float32Array(ARC_SEGMENTS * 80 * 3); // params.rows of 3 vertices per point
+			positions = new Float32Array(ARC_SEGMENTS * 80 * 3); // 78 of 3 vertices per point
 			
 			geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-			geometry.setDrawRange(0, ARC_SEGMENTS * params.rows);
+			geometry.setDrawRange(0, ARC_SEGMENTS * 78);
 			// material
 			const material = new THREE.LineBasicMaterial({ color: 0xff0000 });
 			// line
@@ -238,22 +187,16 @@
 		}
 		
 
-		function fn(i, t) {
+		function fn(i, t0) {
 			const rowPoints = ARC_SEGMENTS
-			const rowDelta = 2000 / params.rows
-			const t2 = (i * params.rows) + (t * rowPoints)
+			const rowDelta = 2000 / 78
+			const t = (i * 78) + (t0 * rowPoints)
 			const point = {}
-			if (i === 2 && t === 0) {
-				console.log(i, t, t2)
-			}
-			point.z = Math.cos(t2 * params.freq1 + params.phase1) * params.mag1 
-				+ Math.cos(t2 * params.freq2 + params.phase2) * params.mag2
-				+ Math.cos(t2 * params.freq3 + params.phase3) * params.mag3
-				+ (i - params.rows/2 + 0.5) * rowDelta
-			point.x = (t * 10) - 1000
-			point.y = Math.sin(t2 * params.freq1 + params.phase1) * params.mag1
-				+ Math.sin(t2 * params.freq2 + params.phase2) * params.mag2
-				+ Math.sin(t2 * params.freq3 + params.phase3) * params.mag3
+			const s = Math.sin
+			const c = Math.cos
+			point.z = eval(params.zfn)
+			point.x = eval(params.xfn) 
+			point.y = eval(params.yfn) 
 			return point
 		}
 
@@ -261,7 +204,7 @@
 			const rowPoints = ARC_SEGMENTS
 			positions = line.geometry.attributes.position.array;
 			let index = 0
-			for (let i = 0; i < params.rows; i++) {
+			for (let i = 0; i < 78; i++) {
 				for (let j = 0; j < rowPoints; j++) {
 					const pt = fn(i, j);
 					positions[index++] = pt.x;
@@ -302,7 +245,7 @@
 			// gCodeLines.push(`G0 X${x0.toFixed(3)} Y${y0.toFixed(3)} Z${z0.toFixed(3)}`);
 			const rowPoints = ARC_SEGMENTS
 			positions = line.geometry.attributes.position.array;
-			for (let i = 0; i < params.rows; i++) {
+			for (let i = 0; i < 78; i++) {
 				for (let j = 0; j < rowPoints; j++) {
 					const t = (i * rowPoints * 3) + (j * 3);
 					const pt = new THREE.Vector3( positions[t], positions[t+1], positions[t+2])
