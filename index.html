@@ -241,11 +241,10 @@
 		function fn(i, t) {
 			const rowPoints = ARC_SEGMENTS
 			const rowDelta = 2000 / params.rows
-			const t2 = (i + 1) * (t / rowPoints)
-			const pt_i = (i * params.rows) + t*3
+			const t2 = (i * params.rows) + (t * rowPoints)
 			const point = {}
 			if (i === 2 && t === 0) {
-				console.log(i, pt_i, t2)
+				console.log(i, t, t2)
 			}
 			point.z = Math.cos(t2 * params.freq1 + params.phase1) * params.mag1 
 				+ Math.cos(t2 * params.freq2 + params.phase2) * params.mag2
